@@ -83,6 +83,13 @@
     <button class="link" id="resume" hidden></button>
   </section>
 
+  <!-- 1b. Ready (a fresh tap here lets iPhones play the first question) -->
+  <section class="screen" id="s-ready" hidden>
+    <h1>Microphone is on</h1>
+    <p>Turn your volume up, then tap the button to hear the first question.</p>
+    <button class="btn done" id="play">Play question 1</button>
+  </section>
+
   <!-- 2. Question -->
   <section class="screen" id="s-q" hidden>
     <div class="progress" id="prog">Question 1 of 10</div>
@@ -159,6 +166,7 @@ const store = {
 let idx = 0, stream = null, recorder = null, chunks = [], timer = null, left = MAX_SECONDS;
 let audioCtx = null, wakeLock = null, mime = "", runId = 0;
 const results = [];
+const player = new Audio(); player.preload = "auto"; // one reusable player so iPhones keep allowing sound
 
 if (TEST) $("testflag").hidden = false;
 $("welcome-count").textContent = `${QUESTIONS.length} short questions. About ${QUESTIONS.length} minutes. You can take a break any time.`;
@@ -204,7 +212,7 @@ function beep() {
 function speak(q) {
   return new Promise(res => {
     if (q.audio) {
-      const a = new Audio(q.audio);
+      const a = player; a.src = q.audio;
       a.onended = res; a.onerror = () => speakText(q.text).then(res);
       a.play().catch(() => speakText(q.text).then(res));
     } else speakText(q.text).then(res);
@@ -343,16 +351,18 @@ $("start").onclick = async () => {
   mime = pickMime();
   try { wakeLock = await navigator.wakeLock?.request("screen"); } catch {}
   store.set({ idx, who: $("who").value.trim() });
-  askQuestion();
+  showReady();
 };
+function showReady() { $("play").textContent = "Play question " + (idx + 1); show("s-ready"); }
+$("play").onclick = () => { try { audioCtx?.resume(); } catch {} askQuestion(); };
 $("done").onclick = finishAnswer;
 $("redo").onclick = () => { stopRecorder(true); setStatus("Starting over…"); setTimeout(() => beep().then(startRecording), 300); };
 $("again").onclick = () => { stopRecorder(true); askQuestion(); };
 $("break").onclick = () => { stopRecorder(true); runId++; try { speechSynthesis.cancel(); } catch {} show("s-break"); $("break-msg").textContent = `No problem. Answers you finished are saved. Close this page any time and open the same link later. You'll pick up at question ${idx + 1}.`; };
 $("continue").onclick = async () => {
-  try { await audioCtx?.resume(); } catch {}
-  if (!stream) { try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); } catch { return showErr("The microphone is blocked. Tap Allow, then try again."); } }
-  askQuestion();
+  if (stream) { try { audioCtx?.resume(); } catch {} return askQuestion(); }
+  try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); } catch { return showErr("The microphone is blocked. Tap Allow, then try again."); }
+  showReady();
 };
 </script>
 </body>
