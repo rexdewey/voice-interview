@@ -56,6 +56,7 @@
   .clock small { display: block; font-family: var(--body); font-size: 15px; color: var(--stone); letter-spacing: 0; }
   .note { background: rgba(0,0,0,.25); border-radius: 10px; padding: 12px 14px; font-size: 15px; color: var(--stone); }
   .warn { background: rgba(255,200,87,.15); border: 2px solid var(--gold); color: var(--cream); }
+  .btn.ghost { font-size: 26px; padding: 16px 10px; background: transparent; color: var(--cream); border: 2px solid var(--sage); }
   .link { background: none; border: 0; color: var(--sage); font: inherit; font-weight: 600; text-decoration: underline; cursor: pointer; padding: 6px 0; align-self: center; }
   .err { background: var(--red); color: #fff; border-radius: 10px; padding: 12px 14px; font-weight: 600; }
   .playlist { display: grid; gap: 14px; }
@@ -103,7 +104,7 @@
       <button class="btn" id="again" disabled>Hear again</button>
     </div>
     <div class="sent" id="sent"></div>
-    <button class="link" id="break">Take a break</button>
+    <button class="btn ghost" id="break">Take a break</button>
     <p class="note">Each answer is capped at 2 minutes because of upload size limits. Didn't get it all out? That's fine. Finish the list, and if anything needs more detail, Rex will set up a short follow-up call after he reviews your answers.</p>
   </section>
 
@@ -164,7 +165,7 @@ const store = {
 };
 
 let idx = 0, stream = null, recorder = null, chunks = [], timer = null, left = MAX_SECONDS;
-let audioCtx = null, wakeLock = null, mime = "", runId = 0;
+let audioCtx = null, wakeLock = null, mime = "", runId = 0, starting = false;
 const results = [];
 const player = new Audio(); player.preload = "auto"; // one reusable player so iPhones keep allowing sound
 
@@ -340,21 +341,24 @@ function stopEverything() {
 }
 
 $("start").onclick = async () => {
+  if (starting) return;
   $("err").hidden = true;
   if (!$("who").value.trim()) { $("who").focus(); $("who").placeholder = "Please type your name first"; return; }
-  // Unlock audio and speech inside the tap (phones require this)
-  try { audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)(); await audioCtx.resume(); } catch {}
-  try { speechSynthesis.speak(new SpeechSynthesisUtterance("")); } catch {}
+  $("who").blur();
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return showErr("This browser can't use the microphone. Open the link in Safari (iPhone) or Chrome (Android).");
-  try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } }); }
-  catch (e) { return showErr("The microphone is blocked (" + (e.name || "error") + "). Tap Allow when asked, or check your phone's settings for this browser, then try again."); }
+  starting = true; const label = $("start").textContent; $("start").textContent = "Starting…"; $("start").disabled = true;
+  const micReq = navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } }); // ask for the mic first, nothing before it
+  try { audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)(); audioCtx.resume().catch(() => {}); } catch {}
+  try { stream = await micReq; }
+  catch (e) { starting = false; $("start").textContent = label; $("start").disabled = false; return showErr("The microphone is blocked (" + (e.name || "error") + "). Tap Allow when asked, or check your phone's settings for this browser, then try again."); }
+  starting = false; $("start").textContent = label; $("start").disabled = false;
   mime = pickMime();
   try { wakeLock = await navigator.wakeLock?.request("screen"); } catch {}
   store.set({ idx, who: $("who").value.trim() });
   showReady();
 };
 function showReady() { $("play").textContent = "Play question " + (idx + 1); show("s-ready"); }
-$("play").onclick = () => { try { audioCtx?.resume(); } catch {} askQuestion(); };
+$("play").onclick = () => { try { audioCtx?.resume(); } catch {} try { speechSynthesis.cancel(); } catch {} askQuestion(); };
 $("done").onclick = finishAnswer;
 $("redo").onclick = () => { stopRecorder(true); setStatus("Starting over…"); setTimeout(() => beep().then(startRecording), 300); };
 $("again").onclick = () => { stopRecorder(true); askQuestion(); };
